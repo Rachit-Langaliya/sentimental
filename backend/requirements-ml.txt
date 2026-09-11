@@ -1,0 +1,20 @@
+# Separate ML requirements file.
+# Run BEFORE starting Phase 3 NLP: pip install -r requirements-ml.txt
+# Models are cached in HF_CACHE_DIR (default: /app/.cache/huggingface)
+#
+# Pre-download models for offline demo use:
+#   python -m app.scripts.download_models
+
+--index-url https://download.pytorch.org/whl/cpu
+torch==2.4.1
+
+--index-url https://pypi.org/simple
+transformers==4.44.2
+sentence-transformers==3.0.1
+bertopic==0.16.4
+hdbscan==0.8.40
+umap-learn==0.5.6
+numpy==1.26.4
+scikit-learn==1.5.2
+langdetect==1.0.9
+pgvector==0.3.5
