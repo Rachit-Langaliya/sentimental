@@ -117,8 +117,19 @@ async def simulate(db: AsyncSession, policy_text: str) -> dict[str, Any]:
     # Load real segments (or generate synthetic ones)
     segments = await _load_segments(db)
 
+    # Real NLP: embed the policy text for vector similarity search
+    policy_embedding = None
+    if settings.USE_REAL_NLP:
+        try:
+            from app.services.nlp_pipeline import encode_texts  # lazy import
+            embs = encode_texts([policy_text])
+            if embs and embs[0] is not None:
+                policy_embedding = embs[0]
+        except Exception as exc:
+            logger.warning("policy_embedding_failed", error=str(exc))
+
     # Find analogous posts from DB
-    analogues = await _find_analogues(db, topics, limit=200)
+    analogues = await _find_analogues(db, topics, policy_embedding=policy_embedding, limit=200)
 
     # Compute per-segment responses
     segment_responses = []
@@ -176,13 +187,53 @@ def _compute_policy_bias(text: str, topics: list[str]) -> float:
 
 # ── Analogue finder ────────────────────────────────────────────────────────────
 
-async def _find_analogues(db: AsyncSession, topics: list[str], limit: int = 200) -> list[Any]:
+async def _find_analogues(
+    db: AsyncSession,
+    topics: list[str],
+    policy_embedding=None,
+    limit: int = 200,
+) -> list[Any]:
     """
-    Find historical posts about the same topics with their NLP results.
-    Returns list of Row objects with (sentiment, support_score, intensity, platform_id).
+    Find historical posts analogous to the policy, with their NLP results.
+
+    When USE_REAL_NLP is on and a policy embedding is provided, uses pgvector
+    cosine similarity (<=> operator) to rank by semantic closeness.
+    Falls back to recency + topic keyword matching otherwise.
     """
     now = datetime.now(timezone.utc)
     window = now - timedelta(days=90)
+
+    # ── Real-NLP path: pgvector cosine similarity ─────────────────────────────
+    if policy_embedding is not None:
+        try:
+            emb_list = (
+                policy_embedding.tolist()
+                if hasattr(policy_embedding, "tolist")
+                else list(policy_embedding)
+            )
+            rows_r = await db.execute(
+                text("""
+                    SELECT pn.sentiment, pn.support_score, pn.intensity,
+                           rp.platform_id, rp.metadata_
+                    FROM post_nlp pn
+                    JOIN raw_posts rp ON rp.id = pn.post_id
+                    WHERE pn.embedding IS NOT NULL
+                      AND rp.post_ts  >= :window
+                      AND rp.expires_at > :now
+                    ORDER BY pn.embedding <=> CAST(:emb AS vector)
+                    LIMIT :lim
+                """),
+                {"window": window, "now": now, "emb": str(emb_list), "lim": limit},
+            )
+            rows = rows_r.all()
+            if len(rows) >= 10:
+                logger.info("analogues_via_pgvector", count=len(rows))
+                return rows
+            logger.warning("pgvector_too_few_results", count=len(rows))
+        except Exception as exc:
+            logger.warning("pgvector_search_failed", error=str(exc))
+
+    # ── Keyword / recency fallback ────────────────────────────────────────────
     rows_r = await db.execute(
         select(
             PostNLP.sentiment,
@@ -195,15 +246,13 @@ async def _find_analogues(db: AsyncSession, topics: list[str], limit: int = 200)
         .where(RawPost.post_ts >= window)
         .where(RawPost.expires_at > now)
         .order_by(RawPost.post_ts.desc())
-        .limit(limit * 4)  # over-fetch, then filter by topic
+        .limit(limit * 4)
     )
     rows = rows_r.all()
 
-    # Filter to matching topics
     matched = [r for r in rows if (r.metadata_ or {}).get("topic") in topics]
     if len(matched) < 10:
-        matched = rows  # fall back to all if not enough topic matches
-
+        matched = rows
     return matched[:limit]
 
 
