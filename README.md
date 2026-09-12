@@ -272,4 +272,4 @@ make psql          # Connect to database
 ## Team
 
 Built for Smart India Hackathon 2026 — Team TEAM007  
-Contact: agrawal123rishi@gmail.com
+Contact: langaliyarachit7@gmail.com
