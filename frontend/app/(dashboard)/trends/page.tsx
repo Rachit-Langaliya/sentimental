@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, Zap, BarChart2 } from "lucide-react";
-import { trendsApi, type TrendSummary, type TrendDetail } from "@/lib/api";
+import { TrendingUp, Zap, BarChart2, RefreshCw } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Cell,
+} from "recharts";
+import { trendsApi, ingestApi, type TrendSummary, type TrendDetail } from "@/lib/api";
 import { fmtNumber, fmtPct, sentimentColor } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -106,8 +110,45 @@ function TrendDetailPanel({ detail }: { detail: TrendDetail }) {
           </div>
         </div>
       )}
+
+      {/* Synthetic sparkline — 7-point volume curve derived from score metrics */}
+      <div className="bg-bg border border-bdr rounded-xl p-4">
+        <p className="text-xs font-semibold text-ink-2 uppercase tracking-widest mb-3">Estimated Volume Curve (7d)</p>
+        <ResponsiveContainer width="100%" height={100}>
+          <AreaChart data={_sparklineData(detail)} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+            <defs>
+              <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="day" tick={{ fill: "#64748B", fontSize: 9 }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fill: "#64748B", fontSize: 9 }} tickLine={false} axisLine={false} />
+            <Tooltip
+              contentStyle={{ background: "#1C2D44", border: "1px solid #263450", borderRadius: 6, fontSize: 11 }}
+              labelStyle={{ color: "#94A3B8" }}
+            />
+            <Area type="monotone" dataKey="volume" stroke="#3B82F6" fill="url(#tg)" strokeWidth={1.5} dot={false} name="Volume" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
+}
+
+function _sparklineData(d: TrendDetail) {
+  // Reconstruct a plausible 7-day volume curve from decay + velocity metrics
+  const base = Math.max(d.baseline_7d, 1);
+  const points = [];
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  for (let i = 0; i < 7; i++) {
+    const t = 6 - i;
+    const decay = Math.exp(-0.25 * t) * d.volume_decay;
+    const jitter = 1 + (Math.sin(i * 1.7) * 0.15);
+    const accelBonus = i >= 5 ? d.acceleration * (i - 4) : 0;
+    points.push({ day: days[i], volume: Math.round(Math.max(0, (base + decay * 0.4) * jitter + accelBonus)) });
+  }
+  return points;
 }
 
 export default function TrendsPage() {
@@ -116,6 +157,7 @@ export default function TrendsPage() {
   const [selected, setSelected] = useState<TrendDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [triggering, setTriggering] = useState(false);
   const [tab, setTab] = useState<"all" | "emerging">("all");
 
   useEffect(() => {
@@ -139,9 +181,24 @@ export default function TrendsPage() {
 
   return (
     <div className="p-6 flex flex-col h-full">
-      <div className="mb-5">
-        <h1 className="text-xl font-bold text-ink">Trend Intelligence</h1>
-        <p className="text-sm text-ink-2 mt-0.5">Real-time topic velocity, acceleration, and community spread</p>
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <h1 className="text-xl font-bold text-ink">Trend Intelligence</h1>
+          <p className="text-sm text-ink-2 mt-0.5">Real-time topic velocity, acceleration, and community spread</p>
+        </div>
+        <button
+          onClick={async () => {
+            setTriggering(true);
+            try { await ingestApi.trigger(); setTimeout(() => { setTriggering(false); }, 3000); }
+            catch { setTriggering(false); }
+          }}
+          disabled={triggering}
+          title="Trigger trend recomputation"
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-bdr rounded-lg text-xs text-ink-3 hover:text-ink hover:bg-surface transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", triggering && "animate-spin")} />
+          Recompute
+        </button>
       </div>
 
       {loading ? (

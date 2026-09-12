@@ -184,6 +184,7 @@ class SimulationRequest(BaseModel):
     policy_text: str
     target_population: Optional[str] = "entire_population"
     question: Optional[str] = None
+    use_local_llm: bool = False  # enrich narratives + executive brief via Ollama
 
 
 class SegmentSimulationResponse(BaseModel):
@@ -204,12 +205,14 @@ class SimulationResult(BaseModel):
     overall_sentiment: SentimentBreakdown
     overall_confidence: float
     analogues_used: List[str]
+    topics_detected: List[str] = []
     segment_responses: List[SegmentSimulationResponse]
     influential_communities: List[str]
     potential_spread: str
+    llm_brief: Optional[str] = None      # executive brief from local LLM
     disclaimer: str
     generated_at: datetime
-    mode: str = "cloud"  # "cloud" | "local"
+    mode: str = "cloud"  # "cloud" | "local-llm"
 
 
 # ── Ingestion / connector status ──────────────────────────────────────────────
@@ -238,3 +241,36 @@ class IngestionStats(BaseModel):
     nlp_coverage: float
     per_platform: List[PlatformIngestionStat]
     generated_at: datetime
+
+
+class ModelStatus(BaseModel):
+    name: str                          # e.g. "sentiment", "emotion", "irony", "embedding"
+    loaded: bool
+    error: Optional[str] = None
+    use_real_nlp: bool = False
+
+
+# ── Ollama / local LLM ────────────────────────────────────────────────────────
+
+class OllamaStatus(BaseModel):
+    available: bool
+    base_url: str
+    configured_model: str
+    model_ready: bool
+    available_models: List[str] = []
+
+
+class OllamaTestRequest(BaseModel):
+    prompt: Optional[str] = None
+
+
+class OllamaTestResult(BaseModel):
+    prompt: str
+    response: str
+    model: str
+
+
+class PersonaRegenerateResult(BaseModel):
+    segment_id: int
+    persona_summary: str
+    generated_by: str = "local-llm"

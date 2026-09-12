@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DB
 from app.models.models import PostNLP, RawPost, Platform
-from app.schemas.schemas import ConnectorStatusSchema, IngestionStats, PlatformIngestionStat
+from app.schemas.schemas import ConnectorStatusSchema, IngestionStats, ModelStatus, PlatformIngestionStat
 
 router = APIRouter()
 
@@ -87,3 +87,24 @@ async def ingestion_stats(current_user: CurrentUser, db: DB):
         per_platform=stats,
         generated_at=datetime.now(timezone.utc),
     )
+
+
+@router.get("/model-status", response_model=list[ModelStatus])
+async def model_status(current_user: CurrentUser):
+    """
+    Return load state of each NLP model (transformer pipeline).
+    Reports whether real models are loaded, or if mock/rule-based fallback is active.
+    """
+    from app.services.nlp_pipeline import model_status as _ms
+    from app.core.config import settings
+
+    raw = _ms()
+    result = []
+    for name, info in raw.items():
+        result.append(ModelStatus(
+            name=name,
+            loaded=info.get("loaded", False),
+            error=info.get("error"),
+            use_real_nlp=settings.USE_REAL_NLP,
+        ))
+    return result

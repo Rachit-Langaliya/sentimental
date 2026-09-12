@@ -235,6 +235,27 @@ async def _cleanup_expired() -> int:
         return result.rowcount or 0
 
 
+# ── Segmentation task ─────────────────────────────────────────────────────────
+
+@celery_app.task(name="app.workers.tasks.run_segmentation", bind=True, max_retries=2)
+def run_segmentation(self):
+    """Cluster anonymous author-hashes into demographic segments and generate personas."""
+    try:
+        count = asyncio.run(_run_segmentation_async())
+        logger.info("segmentation_done", count=count)
+        return {"status": "ok", "count": count}
+    except Exception as exc:
+        logger.error("segmentation_failed", error=str(exc))
+        raise self.retry(exc=exc, countdown=120)
+
+
+async def _run_segmentation_async() -> int:
+    from app.core.database import SessionLocal
+    from app.services.segmentation import run_full_segmentation
+    async with SessionLocal() as db:
+        return await run_full_segmentation(db)
+
+
 # ── Legacy stub ────────────────────────────────────────────────────────────────
 
 @celery_app.task(name="app.workers.tasks.run_synthetic_ingestion", bind=True, max_retries=3)

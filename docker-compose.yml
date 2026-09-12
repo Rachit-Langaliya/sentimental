@@ -1,5 +1,17 @@
 version: '3.9'
 
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-sih}:${POSTGRES_PASSWORD:-sihpass}@postgres:5432/${POSTGRES_DB:-sih_intelligence}
+  REDIS_URL: redis://redis:6379/0
+  USE_REAL_NLP: ${USE_REAL_NLP:-false}
+  DEMO_MODE: ${DEMO_MODE:-true}
+  SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@sih.gov.in}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@SIH2026}
+  ADMIN_NAME: ${ADMIN_NAME:-Platform Administrator}
+  CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+  OLLAMA_BASE_URL: http://ollama:11434
+
 services:
   postgres:
     image: pgvector/pgvector:pg15
@@ -17,6 +29,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -29,16 +42,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: sih_backend
-    env_file: .env
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-sih}:${POSTGRES_PASSWORD:-sihpass}@postgres:5432/${POSTGRES_DB:-sih_intelligence}
-      REDIS_URL: redis://redis:6379/0
+      <<: *backend-env
     ports:
       - "8000:8000"
     depends_on:
@@ -48,17 +62,26 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - model_cache:/root/.cache/huggingface
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: sih_worker
-    env_file: .env
+    init: true
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-sih}:${POSTGRES_PASSWORD:-sihpass}@postgres:5432/${POSTGRES_DB:-sih_intelligence}
-      REDIS_URL: redis://redis:6379/0
+      <<: *backend-env
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,7 +89,48 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+      - model_cache:/root/.cache/huggingface
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2 -Q celery
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sih_beat
+    init: true
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: celery -A app.workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    restart: unless-stopped
+
+  seeder:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sih_seeder
+    env_file:
+      - .env
+    environment:
+      <<: *backend-env
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: python -m app.scripts.seed_demo
+    profiles:
+      - seed
+    restart: "no"
 
   frontend:
     build:
@@ -78,11 +142,13 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
+    restart: unless-stopped
 
   ollama:
     image: ollama/ollama
@@ -91,7 +157,11 @@ services:
       - "11434:11434"
     volumes:
       - ollama_models:/root/.ollama
+    profiles:
+      - llm
+    restart: unless-stopped
 
 volumes:
   pgdata:
   ollama_models:
+  model_cache:

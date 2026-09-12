@@ -13,18 +13,24 @@ import {
   LogOut,
   ShieldCheck,
   Radio,
+  Cpu,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearAuth, getStoredUser } from "@/lib/auth";
 import { authApi } from "@/lib/api";
 
-const NAV = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Overview" },
-  { href: "/audience", icon: Users, label: "Audience" },
-  { href: "/trends", icon: TrendingUp, label: "Trends" },
-  { href: "/sentiment", icon: MessageSquare, label: "Sentiment" },
-  { href: "/network", icon: Network, label: "Network" },
-  { href: "/simulation", icon: FlaskConical, label: "Policy Sim" },
+const NAV_MAIN = [
+  { href: "/dashboard",  icon: LayoutDashboard, label: "Overview" },
+  { href: "/trends",     icon: TrendingUp,      label: "Trends" },
+  { href: "/sentiment",  icon: MessageSquare,   label: "Sentiment" },
+  { href: "/network",    icon: Network,         label: "Network" },
+];
+
+const NAV_ANALYSIS = [
+  { href: "/audience",   icon: Users,           label: "Audience",     badge: null },
+  { href: "/segments",   icon: Layers,          label: "Segments",     badge: null },
+  { href: "/simulation", icon: FlaskConical,    label: "Policy Sim",   badge: "LLM" },
 ];
 
 export function Sidebar() {
@@ -36,6 +42,31 @@ export function Sidebar() {
     try { await authApi.logout(); } catch {}
     clearAuth();
     router.push("/login");
+  }
+
+  function NavLink({ href, icon: Icon, label, badge }: {
+    href: string; icon: React.ElementType; label: string; badge?: string | null;
+  }) {
+    const active = pathname === href || pathname.startsWith(href + "/");
+    return (
+      <Link
+        href={href}
+        className={cn(
+          "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+          active
+            ? "bg-accent/15 text-accent border border-accent/25"
+            : "text-ink-2 hover:bg-surface hover:text-ink"
+        )}
+      >
+        <Icon className={cn("w-4 h-4 flex-shrink-0", active ? "text-accent" : "text-ink-3")} />
+        {label}
+        {badge && (
+          <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-success/20 text-success border border-success/25">
+            {badge}
+          </span>
+        )}
+      </Link>
+    );
   }
 
   return (
@@ -60,34 +91,28 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-0.5">
-        <p className="text-[10px] font-bold text-ink-3 uppercase tracking-widest px-2 pb-2">Main</p>
-        {NAV.map(({ href, icon: Icon, label }) => {
-          const active = pathname === href || pathname.startsWith(href + "/");
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                active
-                  ? "bg-accent/15 text-accent border border-accent/25"
-                  : "text-ink-2 hover:bg-surface hover:text-ink"
-              )}
-            >
-              <Icon className={cn("w-4 h-4 flex-shrink-0", active ? "text-accent" : "text-ink-3")} />
-              {label}
-              {href === "/simulation" && (
-                <span className="ml-auto text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/20 text-accent">New</span>
-              )}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-3 py-4 overflow-y-auto space-y-4">
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-bold text-ink-3 uppercase tracking-widest px-2 pb-2">Monitor</p>
+          {NAV_MAIN.map((item) => (
+            <NavLink key={item.href} {...item} />
+          ))}
+        </div>
+
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-bold text-ink-3 uppercase tracking-widest px-2 pb-2">Analysis</p>
+          {NAV_ANALYSIS.map((item) => (
+            <NavLink key={item.href} {...item} />
+          ))}
+        </div>
       </nav>
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-bdr space-y-1">
-        <Link href="/settings" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-ink-2 hover:bg-surface hover:text-ink transition-all">
+        <Link href="/settings" className={cn(
+          "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all",
+          pathname === "/settings" ? "bg-accent/15 text-accent" : "text-ink-2 hover:bg-surface hover:text-ink"
+        )}>
           <Settings className="w-4 h-4 text-ink-3" />
           Settings
         </Link>

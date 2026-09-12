@@ -5,7 +5,7 @@ import { MessageSquare, Send } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { sentimentApi, type SentimentResult, type TimePoint } from "@/lib/api";
+import { sentimentApi, ingestApi, type SentimentResult, type TimePoint, type ModelStatus } from "@/lib/api";
 import { fmtPct, sentimentColor } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -25,9 +25,11 @@ export default function SentimentPage() {
   const [result, setResult] = useState<SentimentResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [timeline, setTimeline] = useState<TimePoint[]>([]);
+  const [modelStatuses, setModelStatuses] = useState<ModelStatus[]>([]);
 
   useEffect(() => {
     sentimentApi.timeline().then((r) => setTimeline(r.data.points)).catch(() => {});
+    ingestApi.modelStatus().then((r) => setModelStatuses(r.data)).catch(() => {});
   }, []);
 
   async function handleAnalyze() {
@@ -142,19 +144,55 @@ export default function SentimentPage() {
 
       {/* Model info */}
       <div className="bg-surface border border-bdr rounded-xl p-4">
-        <p className="text-xs font-semibold text-ink-2 uppercase tracking-widest mb-3">Active Models (Phase 1 — Mock)</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          {[
-            { label: "Sentiment", model: "twitter-xlm-roberta (Phase 3)", note: "50+ languages" },
-            { label: "Emotion", model: "distilroberta-emotions (Phase 3)", note: "7 classes" },
-            { label: "Sarcasm", model: "roberta-irony (Phase 3)", note: "⚠ Low confidence" },
-          ].map(({ label, model, note }) => (
-            <div key={label} className="bg-bg border border-bdr rounded-lg p-3">
-              <p className="text-ink-3 uppercase tracking-wide text-[10px] mb-1">{label}</p>
-              <p className="text-ink font-medium">{model}</p>
-              <p className="text-ink-3 mt-0.5">{note}</p>
-            </div>
-          ))}
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-ink-2 uppercase tracking-widest">NLP Pipeline</p>
+          {modelStatuses.length > 0 && (
+            <span className={cn(
+              "text-[10px] px-2 py-0.5 rounded-full font-medium",
+              modelStatuses[0]?.use_real_nlp
+                ? "bg-emerald-500/10 text-emerald-400"
+                : "bg-yellow-500/10 text-yellow-400"
+            )}>
+              {modelStatuses[0]?.use_real_nlp ? "Transformer Mode" : "Rule-Based Fallback"}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+          {modelStatuses.length > 0 ? modelStatuses.map((m) => {
+            const META: Record<string, { label: string; note: string }> = {
+              sentiment: { label: "Sentiment", note: "XLM-RoBERTa · 50+ langs" },
+              emotion:   { label: "Emotion",   note: "DistilRoBERTa · 7 classes" },
+              irony:     { label: "Sarcasm",   note: "RoBERTa · low confidence" },
+              embedding: { label: "Embedding", note: "MiniLM · 384-dim" },
+            };
+            const meta = META[m.name] || { label: m.name, note: "" };
+            return (
+              <div key={m.name} className="bg-bg border border-bdr rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-ink-3 uppercase tracking-wide text-[10px]">{meta.label}</p>
+                  <span className={cn("w-1.5 h-1.5 rounded-full", m.loaded ? "bg-emerald-400" : "bg-yellow-400")} />
+                </div>
+                <p className="text-ink font-medium text-[11px]">{m.loaded ? "Loaded" : m.error ? "Error" : "Idle"}</p>
+                <p className="text-ink-3 mt-0.5 text-[10px]">{m.error ? m.error.slice(0, 40) : meta.note}</p>
+              </div>
+            );
+          }) : (
+            [{
+              name: "sentiment", label: "Sentiment", model: "twitter-xlm-roberta", note: "50+ languages",
+            }, {
+              name: "emotion", label: "Emotion", model: "distilroberta-emotions", note: "7 classes",
+            }, {
+              name: "irony", label: "Sarcasm", model: "roberta-irony", note: "⚠ Low confidence",
+            }, {
+              name: "embedding", label: "Embedding", model: "multilingual-MiniLM", note: "384-dim",
+            }].map(({ name, label, model, note }) => (
+              <div key={name} className="bg-bg border border-bdr rounded-lg p-3">
+                <p className="text-ink-3 uppercase tracking-wide text-[10px] mb-1">{label}</p>
+                <p className="text-ink font-medium text-[11px]">{model}</p>
+                <p className="text-ink-3 mt-0.5 text-[10px]">{note}</p>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

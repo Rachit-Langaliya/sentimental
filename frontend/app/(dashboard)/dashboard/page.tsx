@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell,
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { TrendingUp, Users, MessageSquare, Zap, AlertTriangle, Radio, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { TrendingUp, Users, MessageSquare, Zap, AlertTriangle, Radio, WifiOff, RefreshCw, Clock, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { dashboardApi, trendsApi, ingestApi, type DashboardSummary, type TrendSummary, type ConnectorStatus } from "@/lib/api";
 import { fmtNumber, fmtPct } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 
 function KpiCard({ label, value, sub, icon: Icon, accent = false }: {
@@ -99,14 +99,30 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [trends, setTrends] = useState<TrendSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    Promise.all([dashboardApi.summary(), trendsApi.list(7)]).then(([s, t]) => {
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    try {
+      const [s, t] = await Promise.all([dashboardApi.summary(), trendsApi.list(7)]);
       setSummary(s.data);
       setTrends(t.data.items);
+      setLastUpdated(new Date());
+    } catch {
+      // noop
+    } finally {
       setLoading(false);
-    }).catch(() => setLoading(false));
+      setRefreshing(false);
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(() => load(true), 60_000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   if (loading) {
     return (
@@ -137,10 +153,69 @@ export default function DashboardPage() {
       )}
 
       {/* Page header */}
-      <div>
-        <h1 className="text-xl font-bold text-ink">Intelligence Overview</h1>
-        <p className="text-sm text-ink-2 mt-0.5">Real-time public discourse monitoring across {summary?.platform_breakdown.length ?? 0} platforms</p>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-ink">Intelligence Overview</h1>
+          <p className="text-sm text-ink-2 mt-0.5">Real-time public discourse monitoring across {summary?.platform_breakdown.length ?? 0} platforms</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <div className="flex items-center gap-1.5 text-xs text-ink-3">
+              <Clock className="w-3 h-3" />
+              <span>Updated {formatDistanceToNow(lastUpdated, { addSuffix: true })}</span>
+            </div>
+          )}
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            title="Refresh data"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 border border-bdr rounded-lg text-xs text-ink-3 hover:text-ink hover:bg-surface-2 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={cn("w-3 h-3", refreshing && "animate-spin")} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Quick Insights row — top emerging trend + overall sentiment direction */}
+      {trends.length > 0 && (() => {
+        const emerging = trends.filter(t => t.is_emerging);
+        const top = emerging[0] ?? trends[0];
+        const sentPositive = (summary?.overall_sentiment.positive ?? 0) > 0.35;
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 bg-accent/8 border border-accent/25 rounded-xl px-4 py-3">
+              <TrendingUp className="w-4 h-4 text-accent flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs text-ink-3 font-medium uppercase tracking-wider">Top Emerging Topic</p>
+                <p className="text-sm font-semibold text-ink truncate mt-0.5">{top.name}</p>
+                <p className="text-[10px] text-ink-3 mt-0.5">
+                  {fmtNumber(top.unique_users)} users · {top.platform_count} platforms · score {top.trend_score.toFixed(2)}
+                </p>
+              </div>
+            </div>
+            <div className={cn(
+              "flex items-center gap-3 rounded-xl px-4 py-3 border",
+              sentPositive
+                ? "bg-success/8 border-success/25"
+                : "bg-danger/8 border-danger/25"
+            )}>
+              {sentPositive
+                ? <ArrowUpRight className="w-4 h-4 text-success flex-shrink-0" />
+                : <ArrowDownRight className="w-4 h-4 text-danger flex-shrink-0" />}
+              <div>
+                <p className="text-xs text-ink-3 font-medium uppercase tracking-wider">Overall Discourse Tone</p>
+                <p className={cn("text-sm font-semibold mt-0.5", sentPositive ? "text-success" : "text-danger")}>
+                  {sentPositive ? "Predominantly Positive" : "Predominantly Negative"}
+                </p>
+                <p className="text-[10px] text-ink-3 mt-0.5">
+                  {fmtPct(summary?.overall_sentiment.positive ?? 0)} positive · {fmtPct(summary?.overall_sentiment.negative ?? 0)} negative
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">

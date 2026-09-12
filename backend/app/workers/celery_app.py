@@ -30,5 +30,26 @@ celery_app.conf.update(
             "schedule": 300.0,
             "kwargs": {"limit": 150},
         },
+        # Topic modeling: BERTopic fit/assign on recent posts every 15 minutes
+        "topic-modeling": {
+            "task": "app.workers.tasks.run_topic_modeling",
+            "schedule": 900.0,
+            "kwargs": {"limit": 500},
+        },
+        # Trend recomputation: composite score refresh every 10 minutes
+        "recompute-trends": {
+            "task": "app.workers.tasks.recompute_trends",
+            "schedule": 600.0,
+        },
+        # Demographic segmentation: cluster authors every 30 minutes
+        "run-segmentation": {
+            "task": "app.workers.tasks.run_segmentation",
+            "schedule": 1800.0,
+        },
+        # DPDP Act TTL cleanup: delete expired posts once per hour
+        "cleanup-expired-posts": {
+            "task": "app.workers.tasks.cleanup_expired_posts",
+            "schedule": 3600.0,
+        },
     },
 )

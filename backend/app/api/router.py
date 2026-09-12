@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import auth, dashboard, ingest, segments, trends, sentiment, simulation
+from app.api import auth, dashboard, ingest, network, ollama, segments, trends, sentiment, simulation
 
 api_router = APIRouter()
 
@@ -11,3 +11,5 @@ api_router.include_router(trends.router,     prefix="/trends",     tags=["trends
 api_router.include_router(sentiment.router,  prefix="/sentiment",  tags=["sentiment"])
 api_router.include_router(simulation.router, prefix="/simulation", tags=["simulation"])
 api_router.include_router(ingest.router,     prefix="/ingest",     tags=["ingestion"])
+api_router.include_router(network.router,    prefix="/network",    tags=["network"])
+api_router.include_router(ollama.router,     prefix="/ollama",     tags=["local-llm"])

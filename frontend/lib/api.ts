@@ -58,14 +58,25 @@ export const sentimentApi = {
 };
 
 export const simulationApi = {
-  run: (policy_text: string, target_population?: string, question?: string) =>
-    api.post<SimulationResult>("/simulation/run", { policy_text, target_population, question }),
+  run: (policy_text: string, target_population?: string, question?: string, use_local_llm = false) =>
+    api.post<SimulationResult>("/simulation/run", { policy_text, target_population, question, use_local_llm }),
+};
+
+export const ollamaApi = {
+  status: () => api.get<OllamaStatus>("/ollama/status"),
+  warm: () => api.post<{ status: string; model: string }>("/ollama/warm"),
+  test: (prompt?: string) => api.post<OllamaTestResult>("/ollama/test", { prompt }),
+};
+
+export const personaApi = {
+  regenerate: (segmentId: number) => api.post<PersonaRegenerateResult>(`/segments/${segmentId}/regenerate-persona`),
 };
 
 export const ingestApi = {
   status: () => api.get<ConnectorStatus[]>("/ingest/status"),
   stats: () => api.get<IngestionStats>("/ingest/stats"),
   trigger: () => api.post<{ status: string; task_id: string }>("/ingest/trigger"),
+  modelStatus: () => api.get<ModelStatus[]>("/ingest/model-status"),
 };
 
 // ── Types (mirroring backend schemas) ────────────────────────────────────────
@@ -212,15 +223,117 @@ export interface IngestionStats {
   generated_at: string;
 }
 
+export interface NetworkNode {
+  id: string;
+  label: string;
+  platform: string;
+  post_count: number;
+  topic_count: number;
+  dominant_sentiment: string;
+  community_id: number;
+  pagerank: number;
+  betweenness: number;
+  is_bridge: boolean;
+}
+
+export interface NetworkEdge {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface NetworkCommunity {
+  id: number;
+  name: string;
+  size: number;
+  dominant_platform: string;
+  avg_pagerank: number;
+  platform_breakdown: Record<string, number>;
+}
+
+export interface NetworkInfluencer {
+  rank: number;
+  label: string;
+  platform: string;
+  pagerank: number;
+  post_count: number;
+  community_id: number;
+  dominant_sentiment: string;
+}
+
+export interface NetworkBridge {
+  label: string;
+  platform: string;
+  betweenness: number;
+  community_id: number;
+  post_count: number;
+}
+
+export interface NetworkStats {
+  node_count: number;
+  edge_count: number;
+  community_count: number;
+  avg_degree: number;
+  density: number;
+  bridge_count: number;
+}
+
+export interface NetworkGraph {
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+  communities: NetworkCommunity[];
+  influencers: NetworkInfluencer[];
+  bridges: NetworkBridge[];
+  stats: NetworkStats;
+  generated_at: string;
+  is_synthetic?: boolean;
+}
+
+export const networkApi = {
+  graph: (days = 7) => api.get<NetworkGraph>(`/network/graph?days=${days}`),
+  influencers: (days = 7, top = 10) => api.get<{ items: NetworkInfluencer[]; stats: NetworkStats }>(`/network/influencers?days=${days}&top=${top}`),
+  communities: (days = 7) => api.get<{ items: NetworkCommunity[]; stats: NetworkStats }>(`/network/communities?days=${days}`),
+  bridges: (days = 7) => api.get<{ items: NetworkBridge[]; stats: NetworkStats }>(`/network/bridges?days=${days}`),
+};
+
+export interface ModelStatus {
+  name: string;
+  loaded: boolean;
+  error?: string;
+  use_real_nlp: boolean;
+}
+
+export interface OllamaStatus {
+  available: boolean;
+  base_url: string;
+  configured_model: string;
+  model_ready: boolean;
+  available_models: string[];
+}
+
+export interface OllamaTestResult {
+  prompt: string;
+  response: string;
+  model: string;
+}
+
+export interface PersonaRegenerateResult {
+  segment_id: number;
+  persona_summary: string;
+  generated_by: string;
+}
+
 export interface SimulationResult {
   id: string;
   policy_text: string;
   overall_sentiment: SentimentBreakdown;
   overall_confidence: number;
   analogues_used: string[];
+  topics_detected: string[];
   segment_responses: SegmentSimulationResponse[];
   influential_communities: string[];
   potential_spread: string;
+  llm_brief?: string;
   disclaimer: string;
   generated_at: string;
   mode: string;
